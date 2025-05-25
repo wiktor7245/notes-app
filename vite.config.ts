@@ -10,8 +10,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'favicon.ico', 'robots.txt'],
       manifest: {
-        name: 'My Supabase App',
-        short_name: 'SupabaseApp',
+        name: 'Note\'s app',
+        short_name: 'NotesApp',
         description: 'A Supabase-powered Vite PWA',
         theme_color: '#ffffff',
         background_color: '#ffffff',
