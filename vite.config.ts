@@ -8,7 +8,13 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'favicon.ico', 'robots.txt'],
+      includeAssets: [
+        'favicon.svg',
+        'favicon.ico',
+        'robots.txt',
+        'pwa-192x192.png',
+        'pwa-512x512.png'
+      ],
       manifest: {
         name: 'Note\'s app',
         short_name: 'NotesApp',
