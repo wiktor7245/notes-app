@@ -1,4 +1,5 @@
-# Launching
+# Notes app - Vibe coded using bolt.new and copilot
+## Launching
 If not working disable ublock
 Remeber about the .env and .env.local files with content:
 
