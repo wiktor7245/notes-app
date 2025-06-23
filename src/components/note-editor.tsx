@@ -24,7 +24,7 @@ export function NoteEditor() {
   const [isPreview, setIsPreview] = useState(true); // true = Quill read-only
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [lastSavedTimestamp, setLastSavedTimestamp] = useState(Date.now());
-
+  const [isQuillReady, setIsQuillReady] = useState(false); // New state for Quill readiness
 
   const quillEditorRef = useRef<HTMLDivElement>(null);
   const quillInstanceRef = useRef<Quill | null>(null);
@@ -40,8 +40,25 @@ export function NoteEditor() {
 
   // Initialize Quill Editor (runs once after initial render)
   useEffect(() => {
-    if (quillEditorRef.current && !quillInstanceRef.current) {
-      console.log("NoteEditor: Initializing Quill...");
+    // Check 1: Is the ref element available?
+    if (!quillEditorRef.current) {
+      console.error("NoteEditor: Quill Init ABORTED - quillEditorRef.current is null when initialization effect ran. Ensure the div is rendered.");
+      return;
+    }
+    // Check 2: Has Quill already been initialized (e.g., due to fast refresh issues or component re-mounting)?
+    if (quillInstanceRef.current) {
+      console.warn("NoteEditor: Quill Init SKIPPED - quillInstanceRef.current already exists. This might happen with HMR or if component remounts unexpectedly.");
+      // If it already exists and isQuillReady is false, perhaps set it to true.
+      // However, this scenario should ideally be avoided by proper component lifecycle.
+      // For now, we'll assume if it exists, it was set up correctly.
+      // If isQuillReady is false, it implies a previous attempt failed or state is inconsistent.
+      if (!isQuillReady) setIsQuillReady(true); // Attempt to recover if instance exists but not marked ready
+      return;
+    }
+
+    // If we reach here, quillEditorRef.current is valid and quillInstanceRef.current is null.
+    console.log("NoteEditor: Attempting to initialize Quill...");
+    try {
       const quill = new Quill(quillEditorRef.current, {
         theme: 'snow',
         modules: {
@@ -64,27 +81,44 @@ export function NoteEditor() {
         }
       });
       quillInstanceRef.current = quill;
-      console.log("NoteEditor: Quill initialized. Initial isPreview:", isPreview, "Setting Quill enabled:", !isPreview);
-      quill.enable(!isPreview); // Set initial enabled state
+      console.log("NoteEditor: Quill initialized SUCCESSFULLY.");
+      setIsQuillReady(true); // Signal that Quill is ready
+    } catch (error) {
+        console.error("NoteEditor: CRITICAL ERROR during Quill initialization:", error);
+        // You might want to set an error state here to inform the user
     }
   }, []); // Empty dependency array ensures this runs only once
 
-  // Effect to sync Quill's readOnly state with isPreview
+  // Effect to manage Quill's enabled state and focus based on isPreview and Quill readiness
   useEffect(() => {
-    if (quillInstanceRef.current) {
-      console.log("NoteEditor: isPreview changed to", isPreview, ". Setting Quill enabled:", !isPreview);
-      quillInstanceRef.current.enable(!isPreview);
-    } else {
-      console.warn("NoteEditor: Quill instance not available when isPreview changed.");
+    if (!isQuillReady || !quillInstanceRef.current) {
+      console.log("NoteEditor: Enable/Focus effect - Quill not ready yet. isQuillReady:", isQuillReady);
+      return;
     }
-  }, [isPreview]); // Runs when isPreview changes
-
-  // Effect to load note data into editor when selectedNote changes or when switching view modes
-  useEffect(() => {
     const quill = quillInstanceRef.current;
-    console.log("NoteEditor: selectedNote/isPreview Effect. SelectedNote ID:", selectedNote?.id, "Quill instance exists:", !!quill, "isPreview:", isPreview);
+    console.log("NoteEditor: Enable/Focus effect. isPreview:", isPreview, "Setting Quill enabled:", !isPreview);
+    quill.enable(!isPreview);
+    if (!isPreview) { // If in edit mode
+      console.log("NoteEditor: Edit mode active, ensuring Quill focus.");
+      setTimeout(() => quill.focus(), 0); // Ensure focus when entering edit mode
+    }
+  }, [isPreview, isQuillReady]); // Runs when isPreview or isQuillReady changes
 
-    if (selectedNote && quill) {
+  // Effect to load note data into editor when selectedNote changes, IF Quill is ready
+  useEffect(() => {
+    if (!isQuillReady || !quillInstanceRef.current) {
+      if (selectedNote) {
+        console.warn(`NoteEditor: Data load deferred - Quill not ready (isQuillReady: ${isQuillReady}) but selectedNote (ID: ${selectedNote.id}) is present.`);
+      } else {
+        console.log(`NoteEditor: Data load effect - Quill not ready (isQuillReady: ${isQuillReady}), no selected note.`);
+      }
+      return;
+    }
+
+    const quill = quillInstanceRef.current;
+    console.log(`NoteEditor: Data load effect RUNNING. isQuillReady: ${isQuillReady}, SelectedNote ID: ${selectedNote?.id}`);
+
+    if (selectedNote) {
       const noteIdChanged = prevSelectedNoteIdRef.current !== selectedNote.id;
       console.log(`NoteEditor: Loading note. ID: ${selectedNote.id}, Title: ${selectedNote.title}, ID changed: ${noteIdChanged}`);
       
@@ -111,29 +145,21 @@ export function NoteEditor() {
       if (noteIdChanged) {
         console.log("NoteEditor: Note ID changed, setting to preview mode.");
         setIsPreview(true); // Default to preview for a newly selected note
-      } else if (!isPreview) { // Same note, and we are in edit mode
-        console.log("NoteEditor: Same note, edit mode, focusing Quill.");
-        setTimeout(() => quill.focus(), 0);
       }
+      // Focus is handled by the [isPreview, isQuillReady] effect.
       
       setHasUnsavedChanges(false);
       prevSelectedNoteIdRef.current = selectedNote.id;
-
-    } else if (!selectedNote && quill) { // No note selected
-      console.log("NoteEditor: No selected note, clearing editor.");
+    } else { // No note selected
+      console.log("NoteEditor: No selected note, clearing editor (Quill is ready).");
       setTitle('');
-      quill.setContents([]);
+      quill.setContents([]); 
       setContent('');
       setIsPreview(false); // Default to edit mode for a new (unsaved) note
       setHasUnsavedChanges(false);
       prevSelectedNoteIdRef.current = undefined;
-    } else if (!quill && selectedNote) {
-        console.warn("NoteEditor: Quill instance NOT available when trying to load selected note data.");
-    } else if (!selectedNote && !quill) {
-        console.log("NoteEditor: No selected note AND no Quill instance.");
     }
-  }, [selectedNote, isPreview]);
-
+  }, [selectedNote, isQuillReady]); // Depends on selectedNote and Quill readiness
 
   const stableExecuteSave = useCallback(async (
     noteId: string,
@@ -143,9 +169,8 @@ export function NoteEditor() {
   ) => {
     if (!originalNote || (titleToSave === originalNote.title && contentToSave === originalNote.content)) {
       setHasUnsavedChanges(false);
-      return true; // No actual changes to save or no original note to compare against
+      return true;
     }
-
     try {
       await updateNote(noteId, { title: titleToSave, content: contentToSave });
       setLastSavedTimestamp(Date.now());
@@ -155,7 +180,6 @@ export function NoteEditor() {
     } catch (error) {
       toast.error('Failed to save note');
       console.error('Save error:', error);
-      // Keep hasUnsavedChanges true as save failed
       return false;
     }
   }, [updateNote]);
@@ -181,17 +205,13 @@ export function NoteEditor() {
       const titleChanged = title !== currentPersistedNote.title;
       const contentChanged = content !== currentPersistedNote.content;
       const changed = titleChanged || contentChanged;
-      
       setHasUnsavedChanges(changed);
       if (changed) {
         debouncedAutoSave();
       }
     } else {
-      // Handling for a new, unsaved note
       const changed = title !== '' || content !== '';
       setHasUnsavedChanges(changed);
-      // Auto-saving a new note would require creating it first.
-      // For now, just track if there are changes.
     }
   }, [title, content, debouncedAutoSave]);
 
@@ -200,13 +220,11 @@ export function NoteEditor() {
     if (currentSelectedNote) {
       await stableExecuteSave(
         currentSelectedNote.id,
-        titleRef.current, // Use ref for latest value
-        contentRef.current, // Use ref for latest value
+        titleRef.current, 
+        contentRef.current, 
         currentSelectedNote
       );
     } else {
-      // Logic for creating and saving a new note would go here
-      // For example, call a createNote function from the store
       toast.info("No note selected to save. Create a new note first.");
     }
   }, [stableExecuteSave]);
@@ -224,11 +242,9 @@ export function NoteEditor() {
 
   const handleDelete = async () => {
     if (!selectedNoteRef.current) return;
-    // Optional: Add a confirmation dialog here
     try {
       await deleteNote(selectedNoteRef.current.id);
       toast.success('Note deleted successfully');
-      // selectedNote will become null via store, triggering useEffect to clear editor
     } catch (error) {
       toast.error('Failed to delete note');
       console.error('Delete error:', error);
@@ -237,16 +253,16 @@ export function NoteEditor() {
 
   const handleTogglePreview = () => {
     const quill = quillInstanceRef.current;
-    if (!quill) return;
-
-    if (!isPreview && hasUnsavedChanges) { // Switching from Edit to Preview with unsaved changes
-      handleManualSave(); // Attempt to save before switching
+    if (!isQuillReady || !quill) { // Check isQuillReady
+        console.warn("NoteEditor: Toggle preview - Quill not ready.");
+        return;
+    }
+    if (!isPreview && hasUnsavedChanges) {
+      handleManualSave(); 
     }
     setIsPreview(prev => {
       const newIsPreview = !prev;
       console.log("NoteEditor: Toggling preview via button. New isPreview:", newIsPreview);
-      // Focus/blur is handled by the main useEffect for [selectedNote, isPreview]
-      // and the useEffect for [isPreview] that calls quill.enable()
       return newIsPreview;
     });
   };
